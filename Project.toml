@@ -1,0 +1,19 @@
+name = "Bonnie"
+uuid = "6f62f684-a5f8-44b1-bc4e-a9317abb7de4"
+version = "0.1.0-dev"
+authors = ["Frankie Robertson <frankier@frankier.name>"]
+
+[deps]
+Bonito = "824d6782-a2ef-11e9-3a09-e5662e0c26f8"
+HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
+
+[compat]
+Bonito = "5.1.0"
+HTTP = "2.4"
+julia = "1.11"

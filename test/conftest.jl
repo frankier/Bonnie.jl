@@ -20,15 +20,14 @@ const EXAMPLE_SPECS = [
     ExampleSpec("interactive", "examples/http/interactive.jl", ["/", "/probe"]),
     ExampleSpec("oxygen_basic", "examples/oxygen/basic.jl", ["/", "/probe"], "examples/oxygen"),
     ExampleSpec("oxygen_templates", "examples/oxygen/templates.jl", ["/", "/plot"], "examples/oxygen"),
+    # WGLMakie is heavy (long install + startup): smoke runs it only with
+    # BONNIE_SMOKE_WGLMAKIE=1, e2e with BONNIE_E2E_WGLMAKIE=1 (CI jobs do).
+    ExampleSpec("wglmakie_streaming", "examples/wglmakie/streaming.jl",
+                ["/", "/probe"], "examples/wglmakie"),
 ]
 
-# WGLMakie is heavy (long install + startup), so its example smoke is opt-in:
-# set BONNIE_SMOKE_WGLMAKIE=1 (the dedicated CI job does).
-if get(ENV, "BONNIE_SMOKE_WGLMAKIE", "") == "1"
-    push!(EXAMPLE_SPECS,
-          ExampleSpec("wglmakie_streaming", "examples/wglmakie/streaming.jl",
-                      ["/", "/probe"], "examples/wglmakie"))
-end
+smoke_enabled(spec::ExampleSpec) =
+    spec.id != "wglmakie_streaming" || get(ENV, "BONNIE_SMOKE_WGLMAKIE", "") == "1"
 
 pkg_root() = pkgdir(Bonnie)
 
@@ -57,7 +56,10 @@ function check_routes(base::String, spec::ExampleSpec)
     end
 end
 
-function smoke_subprocess(spec::ExampleSpec)
+# Launch `spec` as a subprocess, wait for its port and run `f(base_url)`
+# against it; SIGTERM + reap on the way out, dumping child output if `f`
+# threw or the server never came up. Shared by the smoke and e2e suites.
+function with_example(f, spec::ExampleSpec)
     root = pkg_root()
     port = free_port()
     logfile = tempname()
@@ -87,7 +89,7 @@ function smoke_subprocess(spec::ExampleSpec)
         up = wait_port(port; alive = () -> process_running(proc))
         @test up
         if up
-            check_routes("http://127.0.0.1:$port", spec)
+            f("http://127.0.0.1:$port")
             @test process_running(proc)
             ok = true
         end
@@ -106,6 +108,8 @@ function smoke_subprocess(spec::ExampleSpec)
         end
     end
 end
+
+smoke_subprocess(spec::ExampleSpec) = with_example(base -> check_routes(base, spec), spec)
 
 function smoke_inprocess(spec::ExampleSpec)
     port = free_port()

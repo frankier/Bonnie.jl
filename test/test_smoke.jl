@@ -6,6 +6,7 @@ const SMOKE_MODE = get(ENV, "BONNIE_SMOKE_MODE", "subprocess")
 
 @testset "smoke: examples ($SMOKE_MODE)" begin
     for spec in EXAMPLE_SPECS
+        smoke_enabled(spec) || continue
         @testset "$(spec.id)" begin
             if SMOKE_MODE == "inprocess"
                 smoke_inprocess(spec)

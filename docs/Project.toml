@@ -1,0 +1,8 @@
+[deps]
+Bonito = "824d6782-a2ef-11e9-3a09-e5662e0c26f8"
+Bonnie = "6f62f684-a5f8-44b1-bc4e-a9317abb7de4"
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
+
+[sources]
+Bonnie = {path = ".."}

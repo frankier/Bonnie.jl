@@ -219,6 +219,36 @@ Verified by `Pkg.test()` (147) + the WGLMakie canary (12).
   registered → reconnect gets the same session and server push works down
   the new socket.
 
-## Step 7 — NOT STARTED
+## Step 7: e2e, CI, docs — DONE (2026-07-11)
 
-E2E harness, CI workflows, docs.
+Verified by `Pkg.test()` (160, incl. Aqua) + e2e (14 + WGLMakie 4 through
+headless Chrome) + a local Documenter build.
+
+- **Multi-app pages redesigned (plan trouble area 3, found by e2e):**
+  Bonito's client JS keeps ONE connection sender per page
+  (`Bonito.on_connection_open` is global), so two independent `app_html`
+  root sessions on a page left the first one deaf. Bonnie now installs a
+  `PageState` per request (ScopedValue): one root session owns the page's
+  websocket, `head_content()` emits its bootstrap (or the first fragment
+  does), and every `app_html` renders a Bonito **subsession** — finally
+  giving `head_content` real content, exactly mirroring mplbed. Standalone
+  (out-of-request) `app_html` keeps the old self-contained behaviour.
+- **E2E** (`test/test_e2e.jl` + `test/cdp.jl`, opt-in `BONNIE_E2E=1`):
+  minimal CDP client (JSON3 + HTTP.jl ws) driving headless Chrome — no new
+  runtime deps, solves the "browser testing needs Playwright/Electron"
+  problem that stalled Oxygen PR #212. Covers: basic slider roundtrip
+  (probe + server-updated label), embed_raw both-fragments-connect,
+  oxygen_templates fragment + iframe traversal, and (gated
+  `BONNIE_E2E_WGLMAKIE=1`) WGLMakie canvas + button. Slider driving works
+  by setting `input[type=range].value` and dispatching `input`.
+  `with_example` (subprocess launch/teardown) is shared with smoke.
+- **CI** (`.github/workflows/`): `tests.yml` — matrix (1.11, 1) unit+smoke,
+  a no-Oxygen job (strips Oxygen from the test target, proving the weakdep),
+  a WGLMakie canary job, and an e2e job (Chrome preinstalled on runners);
+  `docs.yml` — Documenter build + gh-pages deploy. Deviation: no separate
+  qa.yml — Aqua runs inside the main suite (`test/test_aqua.jl`);
+  JuliaFormatter/JET not adopted.
+- **Docs** (`docs/`): Documenter site (index/quickstarts, api, examples);
+  README.md added.
+
+All plan steps (1–7) complete.

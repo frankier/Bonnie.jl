@@ -1,9 +1,13 @@
-# EmbeddedConnection: like Bonito.WebSocketConnection, but instead of
-# registering a route on a Bonito.Server it parks itself in Bonnie's session
-# registry and waits for the host HTTP.jl server to hand it an upgraded
-# HTTP.WebSocket. All context (prefix, registry) is captured eagerly at
-# construction — the ws handler runs outside the originating request's scope.
+"""
+    EmbeddedConnection <: Bonito.FrontendConnection
 
+Like `Bonito.WebSocketConnection`, but instead of registering a route on a
+`Bonito.Server` it parks itself in Bonnie's session registry and waits for
+the host HTTP.jl server to hand it an upgraded `HTTP.WebSocket`
+(`GET <prefix>/ws/<session-id>`). All context (prefix, registry) is captured
+eagerly at construction — the ws handler runs outside the originating
+request's scope.
+"""
 mutable struct EmbeddedConnection <: FrontendConnection
     registry::SessionRegistry
     prefix::String

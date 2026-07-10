@@ -10,7 +10,7 @@ module BonnieOxygenExt
 using Bonnie, Oxygen, HTTP
 using Bonnie: BonnieContext, BonnieRouter, bonnie_router_factory,
     serve_asset_response, handle_websocket, status_response,
-    with_bonnie, with_native_app
+    with_bonnie_request, with_native_app
 
 """
     setup!(Val(:oxygen); app = Oxygen, prefix = "/bonito", manage_routing = true,
@@ -69,7 +69,7 @@ end
 function bonnie_oxygen_middleware(ctx::BonnieContext, app::Module)
     return function (handler)
         return function (req::HTTP.Request)
-            with_bonnie(ctx) do
+            with_bonnie_request(ctx) do
                 with_native_app(app) do
                     handler(req)
                 end

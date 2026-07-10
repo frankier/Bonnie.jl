@@ -110,8 +110,14 @@ Core vocabulary (all mirroring mplbed's `html`/`integration.common` split):
   `app_page(f::Function; kw...)` where `f() -> App`, the closure style.
 - `app_html(app; ...) -> String` — HTML fragment (session init + DOM) for
   embedding in a caller-owned template; mplbed's `figure_html`.
-- `head_content(; core = false) -> String` — script/link tags the page
-  `<head>` needs (Bonito JS, styles); mplbed's `head_content`.
+- `head_content() -> String` — the page-level Bonito bootstrap (script
+  imports, websocket setup, root-session init) that fragments plug into;
+  mplbed's `head_content`. **Resolved design (step 7):** Bonito's client JS
+  keeps one connection sender per page, so multiple independent root
+  sessions cannot coexist; Bonnie therefore renders ONE root session per
+  request (owning the websocket) and every `app_html` as a subsession of
+  it. `head_content` emits the root bootstrap; if not called, the first
+  fragment emits it inline.
 - `app_page_html(app; template) -> String` — full page as a string;
   mplbed's `figure_page_html`.
 - `default_app_page_template(; head, title, body) -> String`.

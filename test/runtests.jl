@@ -6,6 +6,7 @@ include("helpers.jl")
 include("conftest.jl")
 
 @testset "Bonnie" begin
+    include("test_aqua.jl")
     include("test_unit.jl")
     include("test_canary.jl")
     # Oxygen is optional (weakdep): the extension tests only run where the
@@ -21,4 +22,9 @@ include("conftest.jl")
         include("test_wglmakie.jl")
     end
     include("test_smoke.jl")
+    # Browser e2e is opt-in: needs headless Chrome (BONNIE_E2E=1 enables,
+    # BONNIE_E2E_WGLMAKIE=1 additionally covers the WGLMakie example).
+    if get(ENV, "BONNIE_E2E", "") == "1"
+        include("test_e2e.jl")
+    end
 end

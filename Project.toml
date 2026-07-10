@@ -21,16 +21,22 @@ BonnieOxygenExt = "Oxygen"
 Oxygen = {url = "https://github.com/frankier/Oxygen.jl", rev = "http-2"}
 
 [compat]
+Aqua = "0.8"
 Bonito = "5.1.0"
 HTTP = "2.4"
+JSON3 = "1"
 Oxygen = "1.10"
+Sockets = "1"
+Test = "1"
 WGLMakie = "0.13"
 julia = "1.11"
 
 [extras]
+Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
 Oxygen = "df9a0d86-3283-4920-82dc-4555fc0d1d8b"
 Sockets = "6462fe0b-24de-5631-8697-dd941f90decc"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Oxygen", "Sockets", "Test"]
+test = ["Aqua", "JSON3", "Oxygen", "Sockets", "Test"]

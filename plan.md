@@ -7,17 +7,33 @@ the structure of [mplbed](https://github.com/frankier/mplbed/):
 
 | mplbed (Python)                          | Bonnie.jl (Julia)                                  |
 |------------------------------------------|----------------------------------------------------|
-| matplotlib WebAgg figures                | Bonito.jl `App`s                                   |
+| matplotlib WebAgg figures                | Bonito.jl `App`s + WGLMakie figures (via Bonito)   |
 | ASGI middleware (`MplbedMiddleware`)     | HTTP.jl handler wrapper (`bonnie_middleware`)      |
 | `contextvars.ContextVar`                 | `Base.ScopedValues.ScopedValue`                    |
 | Starlette sub-app (`mplbed_app_factory`) | HTTP.jl sub-router (`bonnie_router_factory`)       |
 | Flask/Quart + Starlette integrations     | Oxygen.jl integration (package extension)          |
 | `webaggext` custom mpl backend           | custom Bonito `FrontendConnection` + asset server  |
 | Python decorators (`@figure_page`)       | higher-order functions (`app_page(f)`)             |
+| `figure_page`/`figure_html`              | `figure_page`/`figure_html` (WGLMakie extension)   |
 
 Like mplbed, the aim is "usually-works" defaults for quick demos, plus enough
 hooks (prefix control, bring-your-own-router, connection/session management)
 to scale to internal-dashboard use.
+
+**Prior art:** [Oxygen.jl PR #212](https://github.com/OxygenFramework/Oxygen.jl/pull/212)
+(abandoned 2026-07) attacked the same problem from inside Oxygen: an
+`OxygenWebSocketConnection` extension plus `setup_bonito_connection(;
+setup_all=true)`. It stalled on needing upstream changes in both Oxygen
+(`ext_context` on `ServerContext`) and Bonito (PR #253, since landed in
+Bonito 5.1 as `register_connection!`/`force_connection!`), and on having no
+browser-free way to test the connection. Bonnie inverts the dependency so
+nothing needs merging upstream, proxies assets instead of inlining them
+(`NoServer`/`offline=true` was #212's asset story), builds ws URLs from
+`window.location` instead of a configured `external_url`, and tests the wire
+protocol in-process (the canary test). Lessons worth keeping from #212 are
+folded into the sections below: soft-close/reconnect via Bonito's
+`CleanupPolicy`, context-scoped (never global) integration state, a
+manual-route escape hatch for auth, and its WGLMakie demo as an example.
 
 ## Architecture overview
 
@@ -158,6 +174,28 @@ Also in the extension:
   `HTTP.Response` directly, so likely no-op specialisation; kept as an
   extension point mirroring `_mk_quart_response`).
 
+Lessons carried over from Oxygen PR #212 (the abandoned inside-Oxygen
+attempt, whose review by the Oxygen maintainer validates this shape):
+
+- **Integration state lives in the per-instance context** (Bonnie's
+  registries inside the handle returned by `setup!`), never in globals —
+  the original #212 design with module-level `open_connections` was
+  rejected in review for exactly this.
+- **Manual-route escape hatch**: document registering the websocket route
+  yourself and delegating to Bonnie's handler, so users can wrap it with
+  auth/instrumentation (#212's `setup_route=false` +
+  `oxygen_bonito.handler(ws, session_id)` pattern) — this is our
+  `manage_routing = false` story on the Oxygen side.
+- **Optional `register_connection!` opt-in**: Bonito 5.1 ships the
+  default-backend registry #212 relied on. An opt-in
+  (`setup!(...; register_default_connection = true)` or similar) can
+  register `EmbeddedConnection`/`EmbeddedAssetServer` as Bonito's process
+  defaults so pre-existing code that `show`s an `App`/figure (e.g. Oxygen's
+  own `html(app)`) renders through Bonnie without calling `app_page`.
+  Off by default: it is exactly the global mutable state Bonnie avoids.
+- **Hot-reload wishlist** (from #212 discussion): hook Bonito sessions into
+  Oxygen's revise-based hot reload. Nice-to-have, not v1.
+
 **Extension dispatch problem** (see trouble areas): extensions can only add
 methods to existing functions, and much of Oxygen's API is module-level
 (global default app) rather than type-based, so there is no natural argument
@@ -167,6 +205,41 @@ error message ("load Oxygen to enable the integration"); the extension
 overrides `setup!(::Val{:oxygen}; ...)` (module-level Oxygen app) and
 `setup!(::Oxygen.Context; ...)` (instance mode). A `Val`-less alias
 `setup_oxygen!` can be added for discoverability.
+
+### WGLMakie integration (package extension)
+
+WGLMakie already renders through Bonito (`App(fig)` works against any Bonito
+session), so Bonnie's connection/asset/lifecycle layer supports it with zero
+changes — WGLMakie's JS is just a large ES-module asset through
+`EmbeddedAssetServer`, and its binary geometry buffers are why the ws frame
+caps are lifted. The extension is therefore a thin convenience-and-hardening
+layer, not a new backend:
+
+- **`BonnieMakieExt`** (weakdep: WGLMakie; dispatch on `Makie.FigureLike`):
+  `figure_page(fig; kw...)` / `figure_html(fig)` / `Safe.figure_html` —
+  the literal mirror of mplbed's `figure_page`/`figure_html` vocabulary,
+  implemented as `app_page(App(fig))` etc.
+- **WGLMakie canary test**: render `lines(1:4)` through `EmbeddedConnection`
+  and assert the WGLMakie ES module is registered/served and the init
+  roundtrip completes — exercises `import_in_js`/es6-module asset paths and
+  much larger payloads than the slider canary. WGLMakie is a heavy dep:
+  separate test target and CI job (like the Oxygen-less job).
+- **Docs/pitfalls**: call `WGLMakie.activate!()`; do *not* use
+  `Page(exportable=true, offline=true)` (the #212/Oxygen-docs pattern that
+  inlines everything and severs interactivity — Bonnie makes it
+  unnecessary, at the cost of static export); per-figure server memory
+  makes the TTL sweeper matter more (crawler renders).
+- **Example**: `examples/wglmakie/streaming.jl` — port of #212's demo
+  (button + self-updating streaming lines plot: interactivity and
+  server-push in one figure), fixing its bare-`@async` update loop to tie
+  the updater to session close. Also the strongest e2e target (canvas
+  pixel assertions are the true mplbed mirror).
+- **Downloads — optional, likely out of scope for v1**: mplbed proxies
+  WebAgg's `download.<fmt>` toolbar endpoints. The Makie analogue would be
+  a `:download` named route (`GET <prefix>/download/{session_id}.{fmt}`)
+  exporting the session's figure server-side via `Makie.save` — but
+  png/svg/pdf export needs CairoMakie as another weakdep. Decide when
+  there's demand; a client-side canvas snapshot is the cheap alternative.
 
 ## Implementation details
 
@@ -246,8 +319,15 @@ mplbed flags this as its own scaling story):
   requests on arbitrary threads/tasks).
 - TTL sweeper task for sessions that render a page but never connect
   (user closed the tab before JS ran) — Bonito's `CleanupPolicy` is tied to
-  its own server, so we own this.
-- Close/`Bonito.free` sessions on websocket disconnect.
+  its own server, so we own the sweeping.
+- **Soft-close/reconnect** (from Oxygen PR #212): on websocket disconnect,
+  don't close immediately — reuse Bonito's `CleanupPolicy` vocabulary
+  (`DefaultCleanupPolicy`, `allow_soft_close`, `soft_close`,
+  `should_cleanup`) so a dropped connection (flaky network, laptop sleep)
+  can reconnect to the still-live session within the policy window; the
+  sweeper then also reaps soft-closed sessions via `should_cleanup`.
+  (Step 2 shipped the simpler close-on-disconnect + `connected::Bool` TTL;
+  migrating the registry to `CleanupPolicy` is follow-up hardening.)
 
 ### HTML module (mirror of `html/`)
 
@@ -286,16 +366,21 @@ Bonnie.jl/
 │   └── pages.jl                 # app_page / app_standalone call styles
 │                                #                            (≈ integration/common.py)
 ├── ext/
-│   └── BonnieOxygenExt.jl       # setup!, install_middleware!, register_routes!,
-│                                #   iframe_for               (≈ integration/quart.py)
+│   ├── BonnieOxygenExt.jl       # setup!, install_middleware!, register_routes!,
+│   │                            #   iframe_for               (≈ integration/quart.py)
+│   └── BonnieMakieExt.jl        # figure_page/figure_html for Makie.FigureLike
 ├── examples/
 │   ├── http/                    # raw HTTP.jl examples       (≈ examples/starlette/)
+│   │   ├── basic.jl             # slider + /probe route
 │   │   ├── embed_raw.jl         # ≈ embed2_raw.py: manual head_content + template
 │   │   ├── mount_app.jl         # ≈ mount_app.py: manage_routing=false
 │   │   └── interactive.jl      # ≈ draw_idle.py: server-push via Observables
-│   └── oxygen/
-│       ├── basic.jl             # ≈ quart/basic.py: setup! + app_page
-│       └── templates.jl         # iframe_for + fragment embedding
+│   ├── oxygen/
+│   │   ├── basic.jl             # ≈ quart/basic.py: setup! + app_page
+│   │   └── templates.jl         # iframe_for + fragment embedding
+│   └── wglmakie/
+│       └── streaming.jl         # port of Oxygen PR #212 demo (button +
+│                                #   streaming lines plot)
 ├── test/
 │   ├── runtests.jl
 │   ├── conftest.jl              # example specs, subprocess launch, port wait
@@ -392,6 +477,9 @@ changed). Bonnie mirrors this:
   expected routes; without Oxygen (separate test env), stubs throw the
   guidance error and the core test suite passes — proving Oxygen is truly
   optional.
+- WGLMakie canary (separate test target/CI job — heavy dep): render a
+  `lines` figure through `EmbeddedConnection`, assert the WGLMakie ES
+  module is registered and served, and the init roundtrip completes.
 - `Aqua.jl` (ambiguities, stale deps, piracy) as the qa-workflow analogue of
   ruff/ty.
 
@@ -461,4 +549,7 @@ port 0 for a fast dev loop, keeping true subprocess isolation for CI.
 2. Core package: context/middleware/router/registry/html/pages + unit tests.
 3. Examples (`examples/http/`) + smoke harness.
 4. Oxygen extension + `examples/oxygen/` + extension tests.
-5. E2E harness, CI workflows, docs.
+5. WGLMakie extension (`figure_page`/`figure_html`) + `examples/wglmakie/`
+   + WGLMakie canary test.
+6. Registry hardening: soft-close/reconnect via Bonito `CleanupPolicy`.
+7. E2E harness, CI workflows, docs.

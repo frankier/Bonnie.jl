@@ -1,5 +1,4 @@
-# Plan step 1 spike example: one slider app rendered through Bonnie's
-# EmbeddedConnection/EmbeddedAssetServer on a hand-rolled HTTP.jl server.
+# One slider app rendered through Bonnie's middleware on a raw HTTP.jl server.
 #
 #     julia --project=. examples/http/spike_slider.jl
 #
@@ -8,13 +7,12 @@
 
 using Bonito, Bonnie, HTTP
 
-const STATE = Ref{Any}(nothing)
 # Exposed so tests can assert the server saw slider values (plan's /probe idea).
 const LAST_VALUE = Bonito.Observable(0)
 
 function index(req::HTTP.Request)
     Bonnie.target_path(req.target) == "/" || return HTTP.Response(404)
-    return app_page(STATE[].state, App() do
+    return app_page(App() do
         slider = Bonito.Slider(1:10)
         Bonito.on(slider.value) do v
             LAST_VALUE[] = v
@@ -24,12 +22,15 @@ function index(req::HTTP.Request)
 end
 
 function main(; port = parse(Int, get(ENV, "PORT", "8081")))
-    STATE[] = serve_spike(index; port = port)
-    @info "Spike server running" url = "http://127.0.0.1:$(port)/"
-    return STATE[]
+    mw = bonnie_middleware(index)
+    # listen! (not serve): the middleware is a stream handler so it can
+    # upgrade the /bonito/ws/<session-id> websockets.
+    server = HTTP.listen!(mw, "127.0.0.1", port)
+    @info "Bonnie example running" url = "http://127.0.0.1:$(port)/"
+    return (; server, mw)
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
-    main()
-    wait(STATE[].server)
+    handle = main()
+    wait(handle.server)
 end

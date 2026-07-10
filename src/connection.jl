@@ -20,8 +20,10 @@ Base.write(c::EmbeddedConnection, bytes::AbstractVector{UInt8}) = write(c.handle
 
 function Base.close(c::EmbeddedConnection)
     close(c.handler)
-    if !isnothing(c.session)
-        session = c.session
+    session = c.session
+    # Break the cycle before cascading: close(session) closes the connection.
+    c.session = nothing
+    if !isnothing(session)
         remove!(c.registry, session.id)
         close(session)
     end
@@ -59,12 +61,14 @@ function handle_websocket(registry::SessionRegistry, session_id::AbstractString,
         close(ws)
         return
     end
+    mark_connected!(registry, session_id)
     connection = session.connection::EmbeddedConnection
     try
         Bonito.run_connection_loop(session, connection.handler, ws)
     finally
-        # Spike policy: close immediately on disconnect (no soft-close /
-        # reconnect window yet; that arrives with the registry TTL work).
+        # Lifecycle policy: close immediately on disconnect (no soft-close /
+        # reconnect window). is_current_socket guards against a reconnect
+        # racing the old socket's teardown.
         if Bonito.is_current_socket(connection.handler, ws)
             remove!(registry, session.id)
             close(session)

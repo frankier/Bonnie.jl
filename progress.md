@@ -119,11 +119,28 @@ test/test_canary.jl  # spike e2e test ported to the middleware API
   weakdeps/extension migration happens in step 4 together with
   `ext/BonnieOxygenExt.jl`. `setup!(Val(:oxygen))` stub errors with guidance.
 
-## Step 3: examples + smoke harness — NOT STARTED
+## Step 3: examples + smoke harness — DONE (2026-07-10)
 
-`examples/http/spike_slider.jl` was ported to the middleware API and smoke-
-checked in-process, but the ExampleSpec subprocess harness and the further
-examples (embed_raw, mount_app, interactive) remain.
+Verified by `Pkg.test()` (103 assertions, ~75 s: unit + canary + subprocess
+smoke of all four examples).
+
+- `examples/http/`: `basic.jl` (spike_slider renamed; slider + `/probe`
+  route exposing the last slider value for later e2e), `embed_raw.jl` (two
+  fragments in a caller-owned template via `app_html`/`head_content`),
+  `mount_app.jl` (`manage_routing = false`, sub-router mounted on an
+  `HTTP.Router` at `GET /bonito/**` via `Bonnie.dispatch`), `interactive.jl`
+  (server-push: a `Timer` bumps an Observable all pages follow). Every
+  example honours `PORT`, guards serving behind
+  `abspath(PROGRAM_FILE) == @__FILE__`, and returns a closeable handle from
+  `main(; port)` so it can be `include`d in-process.
+- `test/conftest.jl`: `ExampleSpec` table, free-port/port-wait helpers, and
+  the two launch modes — subprocess (fresh `julia --project=<root>` with
+  `PORT` env, port poll, per-route GETs, process-alive check, SIGTERM +
+  10 s SIGKILL reaper, child output dumped on failure) and in-process
+  (include into an anonymous module + `main(; port)`; ~27 s for all four).
+  `test/test_smoke.jl` selects via `ENV["BONNIE_SMOKE_MODE"]`
+  ("subprocess" default | "inprocess").
+- Sockets (stdlib) added to test extras/target.
 
 ## Steps 4–5 — NOT STARTED
 

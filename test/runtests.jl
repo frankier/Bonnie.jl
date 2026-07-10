@@ -15,7 +15,10 @@ slider_app() = App() do
     return Bonito.DOM.div(slider, Bonito.DOM.div(slider.value))
 end
 
+include("conftest.jl")
+
 @testset "Bonnie" begin
     include("test_unit.jl")
     include("test_canary.jl")
+    include("test_smoke.jl")
 end

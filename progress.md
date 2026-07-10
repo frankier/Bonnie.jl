@@ -173,8 +173,29 @@ example smoke as subprocesses).
 - Gotchas hit: `HTTP.WebSocket` is `HTTP.WebSockets.WebSocket` in 2.x;
   `html` is exported by both Oxygen and Bonito (qualify in user code).
 
-## Steps 5–7 — NOT STARTED
+## Step 5: WGLMakie extension — DONE (2026-07-11)
 
-WGLMakie extension; registry soft-close/reconnect hardening; e2e/CI/docs.
-(Steps renumbered 2026-07-10 when plan.md gained the WGLMakie extension and
-registry-hardening steps after the Oxygen PR #212 comparison.)
+Verified by the standalone canary (12 assertions, `julia
+--project=examples/wglmakie test/test_wglmakie.jl`), an in-process smoke of
+the streaming example, and the unchanged main suite (137).
+
+- `ext/BonnieMakieExt.jl` (weakdep WGLMakie 0.13): `figure_page` /
+  `figure_html` / `figure_page_html` on `Makie.FigureLike` =
+  `app_page(App(fig))` etc.; stubs + exports + `Safe` variants in core.
+  No connection/asset changes were needed — WGLMakie rides on Bonito as
+  predicted.
+- `test/test_wglmakie.jl`: canary asserting the WGLMakie ES module is
+  registered/served through the prefix (>10 kB body) and the init
+  handshake reaches ready (fails if the big binary scene bundle can't be
+  serialized/served). Self-bootstrapping: runs standalone under
+  `examples/wglmakie` env or from runtests when the env has WGLMakie.
+  Shared test helpers factored into `test/helpers.jl`.
+- `examples/wglmakie/streaming.jl` (own env, Bonnie via `[sources]` path):
+  port of Oxygen PR #212's demo — button-driven counter + 1 Hz server-push
+  into a lines plot — with the per-session ticker closed via
+  `session.on_close` (the PR's bare `@async` loop leaked). Smoke spec is
+  opt-in via `BONNIE_SMOKE_WGLMAKIE=1`.
+
+## Steps 6–7 — NOT STARTED
+
+Registry soft-close/reconnect hardening; e2e/CI/docs.

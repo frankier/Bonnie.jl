@@ -5,8 +5,6 @@
 # an anonymous module and calls its main(; port) for a fast dev loop —
 # select with ENV["BONNIE_SMOKE_MODE"] = "subprocess" (default) | "inprocess".
 
-using Sockets
-
 struct ExampleSpec
     id::String
     path::String              # relative to the package root
@@ -24,14 +22,15 @@ const EXAMPLE_SPECS = [
     ExampleSpec("oxygen_templates", "examples/oxygen/templates.jl", ["/", "/plot"], "examples/oxygen"),
 ]
 
-pkg_root() = pkgdir(Bonnie)
-
-function free_port()
-    server = Sockets.listen(Sockets.InetAddr(Sockets.ip"127.0.0.1", 0))
-    _, port = Sockets.getsockname(server)
-    close(server)
-    return Int(port)
+# WGLMakie is heavy (long install + startup), so its example smoke is opt-in:
+# set BONNIE_SMOKE_WGLMAKIE=1 (the dedicated CI job does).
+if get(ENV, "BONNIE_SMOKE_WGLMAKIE", "") == "1"
+    push!(EXAMPLE_SPECS,
+          ExampleSpec("wglmakie_streaming", "examples/wglmakie/streaming.jl",
+                      ["/", "/probe"], "examples/wglmakie"))
 end
+
+pkg_root() = pkgdir(Bonnie)
 
 function wait_port(port; timeout = 180.0, alive = () -> true)
     deadline = time() + timeout

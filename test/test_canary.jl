@@ -6,15 +6,6 @@
 # (setup_connection, process_message, asset key scheme, message protocol),
 # this is the test that should break first.
 
-# The browser side of Bonito's protocol: plain msgpack, gzipped only if the
-# session negotiated compression. (Bonito.serialize_binary is the *server*
-# encoder and wraps payloads in msgpack extensions process_message rejects.)
-function client_message(session, msg::AbstractDict)
-    bytes = Bonito.MsgPack.pack(msg)
-    session.compression_enabled && (bytes = Bonito.transcode(Bonito.GzipCompressor, bytes))
-    return bytes
-end
-
 @testset "canary: slider app end-to-end" begin
     last_value = Bonito.Observable(0)
     slider_value = Ref{Any}(nothing)

@@ -2,19 +2,7 @@ using Test
 using Bonito, Bonnie, HTTP
 using HTTP.WebSockets
 
-function wait_for(f; timeout = 10.0)
-    deadline = time() + timeout
-    while !f() && time() < deadline
-        sleep(0.05)
-    end
-    return f()
-end
-
-slider_app() = App() do
-    slider = Bonito.Slider(1:10)
-    return Bonito.DOM.div(slider, Bonito.DOM.div(slider.value))
-end
-
+include("helpers.jl")
 include("conftest.jl")
 
 @testset "Bonnie" begin
@@ -25,6 +13,12 @@ include("conftest.jl")
     # works without it).
     if !isnothing(Base.find_package("Oxygen"))
         include("test_oxygen.jl")
+    end
+    # WGLMakie is a heavy weakdep: its canary only runs where the env
+    # provides it (standalone: julia --project=examples/wglmakie
+    # test/test_wglmakie.jl; CI runs it as a dedicated job).
+    if !isnothing(Base.find_package("WGLMakie"))
+        include("test_wglmakie.jl")
     end
     include("test_smoke.jl")
 end

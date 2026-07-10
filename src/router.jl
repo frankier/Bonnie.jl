@@ -27,17 +27,21 @@ end
 
 """
     bonnie_router_factory(; prefix = DEFAULT_PREFIX, session_ttl = 300.0,
-                          sessions, assets, status_page_auth = nothing)
+                          reconnect_window = 30.0, sessions, assets,
+                          status_page_auth = nothing)
 
 Build the [`BonnieRouter`](@ref) that `bonnie_middleware` mounts under
 `prefix`. `session_ttl` (seconds) controls when never-connected sessions are
-swept; pass `sessions`/`assets` to share registries across routers. The
-status page is disabled unless `status_page_auth(req)::Bool` is given —
-authentication is mandatory, mirroring mplbed's `MplPageAuth`.
+swept and `reconnect_window` (seconds) how long a disconnected session stays
+resumable (see [`SessionRegistry`](@ref)); pass `sessions`/`assets` to share
+registries across routers. The status page is disabled unless
+`status_page_auth(req)::Bool` is given — authentication is mandatory,
+mirroring mplbed's `MplPageAuth`.
 """
 function bonnie_router_factory(; prefix::String = DEFAULT_PREFIX,
                                session_ttl::Real = 300.0,
-                               sessions::SessionRegistry = SessionRegistry(; ttl = session_ttl),
+                               reconnect_window::Real = 30.0,
+                               sessions::SessionRegistry = SessionRegistry(; session_ttl, reconnect_window),
                                assets::AssetRegistry = AssetRegistry(),
                                status_page_auth::Union{Nothing, Function} = nothing)
     startswith(prefix, "/") || throw(ArgumentError("prefix must start with '/': $(repr(prefix))"))

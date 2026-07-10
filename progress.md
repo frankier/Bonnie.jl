@@ -196,6 +196,29 @@ the streaming example, and the unchanged main suite (137).
   `session.on_close` (the PR's bare `@async` loop leaked). Smoke spec is
   opt-in via `BONNIE_SMOKE_WGLMAKIE=1`.
 
-## Steps 6–7 — NOT STARTED
+## Step 6: registry soft-close/reconnect — DONE (2026-07-11)
 
-Registry soft-close/reconnect hardening; e2e/CI/docs.
+Verified by `Pkg.test()` (147) + the WGLMakie canary (12).
+
+- `SessionRegistry` now delegates lifecycle to a `Bonito.CleanupPolicy`
+  (default `DefaultCleanupPolicy(session_ttl, reconnect_window/3600)`);
+  the sweeper reaps whatever `should_cleanup` approves: soft-closed
+  sessions past the reconnect window *and* rendered-but-never-connected
+  sessions past `session_ttl` — the bespoke `connected::Bool`/TTL entry
+  struct is gone.
+- On ws disconnect the session is **soft-closed** and stays registered
+  (default `reconnect_window = 30.0` s), so a reconnecting browser resumes
+  it — mirrors Bonito's own `WebSocketConnection` teardown including the
+  stale-loop `is_current_socket` guard; `reconnect_window = 0` restores
+  immediate close (tests use it where they assert instant teardown).
+- `app_html` now calls `Bonito.mark_displayed!` after rendering — that's
+  what stamps `closing_time`/`DISPLAYED`, which the policy's
+  never-connected timeout keys off (Bonito's display paths do this; our
+  render path had to as well).
+- New canary testset: connect → drop → session `SOFT_CLOSED` but still
+  registered → reconnect gets the same session and server push works down
+  the new socket.
+
+## Step 7 — NOT STARTED
+
+E2E harness, CI workflows, docs.

@@ -7,7 +7,7 @@ import Oxygen
 @testset "Oxygen extension" begin
     @test Base.get_extension(Bonnie, :BonnieOxygenExt) !== nothing
 
-    bonnie = Bonnie.setup!(Val(:oxygen))
+    bonnie = Bonnie.setup!(Val(:oxygen); reconnect_window = 0)
     @test bonnie.prefix == "/bonito"
     @test bonnie.context isa BonnieContext
     @test bonnie.app === Oxygen

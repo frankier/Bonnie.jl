@@ -2,56 +2,53 @@
 # time (ws upgrade, asset GET). HTTP.jl handles requests on arbitrary tasks,
 # so both are lock-guarded.
 
-mutable struct SessionEntry
-    const session::Session
-    const created::Float64
-    connected::Bool
-end
-
 """
-    SessionRegistry(; ttl = 300.0, sweep_interval = max(1.0, ttl / 4))
+    SessionRegistry(; cleanup_policy = Bonito.DefaultCleanupPolicy(),
+                    session_ttl = 300.0, reconnect_window = 30.0,
+                    sweep_interval = 15.0)
 
 Lock-guarded map from session id to live `Bonito.Session`. Sessions register
-themselves during render (via `Bonito.setup_connection`) and are removed when
-their websocket disconnects. Sessions that render a page but never connect
-(tab closed before JS ran, crawlers) are closed by a TTL sweeper once they are
-older than `ttl` seconds; the sweeper timer starts with the first registration
-and stops itself when the registry empties.
+themselves during render (via `Bonito.setup_connection`) and lifecycle is
+governed by a `Bonito.CleanupPolicy`:
+
+- a session whose page renders but never connects (tab closed before JS ran,
+  crawlers) is closed once it is older than `session_ttl` seconds;
+- on websocket disconnect the session is **soft-closed** and stays
+  registered for `reconnect_window` seconds so a reconnecting browser
+  (flaky network, laptop sleep) resumes the same session; with
+  `reconnect_window = 0` it is closed immediately instead.
+
+`session_ttl`/`reconnect_window` are conveniences filling in a
+`Bonito.DefaultCleanupPolicy`; pass `cleanup_policy` to override with any
+policy implementing `should_cleanup`/`allow_soft_close`. A sweeper timer
+(started with the first registration, stopped when the registry empties)
+closes sessions `should_cleanup` approves of.
 """
 mutable struct SessionRegistry
     const lock::ReentrantLock
-    const entries::Dict{String, SessionEntry}
-    const ttl::Float64
+    const entries::Dict{String, Session}
+    const cleanup_policy::Bonito.CleanupPolicy
     const sweep_interval::Float64
     sweeper::Union{Nothing, Timer}
 end
 
-function SessionRegistry(; ttl::Real = 300.0, sweep_interval::Real = max(1.0, ttl / 4))
-    return SessionRegistry(ReentrantLock(), Dict{String, SessionEntry}(),
-                           Float64(ttl), Float64(sweep_interval), nothing)
+function SessionRegistry(; session_ttl::Real = 300.0, reconnect_window::Real = 30.0,
+                         cleanup_policy::Bonito.CleanupPolicy =
+                             Bonito.DefaultCleanupPolicy(session_ttl, reconnect_window / 60 / 60),
+                         sweep_interval::Real = 15.0)
+    return SessionRegistry(ReentrantLock(), Dict{String, Session}(),
+                           cleanup_policy, Float64(sweep_interval), nothing)
 end
 
 function register!(r::SessionRegistry, s::Session)
     lock(r.lock) do
-        r.entries[s.id] = SessionEntry(s, time(), false)
+        r.entries[s.id] = s
         ensure_sweeper!(r)
     end
     return s
 end
 
-function lookup(r::SessionRegistry, id::AbstractString)
-    entry = lock(() -> get(r.entries, id, nothing), r.lock)
-    return isnothing(entry) ? nothing : entry.session
-end
-
-function mark_connected!(r::SessionRegistry, id::AbstractString)
-    lock(r.lock) do
-        entry = get(r.entries, id, nothing)
-        isnothing(entry) || (entry.connected = true)
-    end
-    return
-end
-
+lookup(r::SessionRegistry, id::AbstractString) = lock(() -> get(r.entries, id, nothing), r.lock)
 remove!(r::SessionRegistry, id::AbstractString) = lock(() -> delete!(r.entries, id), r.lock)
 Base.length(r::SessionRegistry) = lock(() -> length(r.entries), r.lock)
 
@@ -69,13 +66,10 @@ function ensure_sweeper!(r::SessionRegistry)
 end
 
 function sweep!(r::SessionRegistry)
-    now = time()
     victims = Session[]
     lock(r.lock) do
-        for (id, entry) in r.entries
-            if !entry.connected && now - entry.created > r.ttl
-                push!(victims, entry.session)
-            end
+        for (id, session) in r.entries
+            Bonito.should_cleanup(r.cleanup_policy, session) && push!(victims, session)
         end
         for s in victims
             delete!(r.entries, s.id)
@@ -105,7 +99,7 @@ Stop the sweeper and close every remaining session (server shutdown).
 function Base.close(r::SessionRegistry)
     sessions = lock(r.lock) do
         isnothing(r.sweeper) || (close(r.sweeper); r.sweeper = nothing)
-        sessions = [entry.session for entry in values(r.entries)]
+        sessions = collect(values(r.entries))
         empty!(r.entries)
         sessions
     end

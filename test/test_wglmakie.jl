@@ -33,7 +33,7 @@ using WGLMakie: Makie
     end
 
     port = free_port()
-    mw = bonnie_middleware(handler)
+    mw = bonnie_middleware(handler; reconnect_window = 0)
     server = HTTP.listen!(mw, "127.0.0.1", port)
     base = "http://127.0.0.1:$port"
 

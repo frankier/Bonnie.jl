@@ -61,17 +61,23 @@ function handle_websocket(registry::SessionRegistry, session_id::AbstractString,
         close(ws)
         return
     end
-    mark_connected!(registry, session_id)
     connection = session.connection::EmbeddedConnection
     try
         Bonito.run_connection_loop(session, connection.handler, ws)
     finally
-        # Lifecycle policy: close immediately on disconnect (no soft-close /
-        # reconnect window). is_current_socket guards against a reconnect
-        # racing the old socket's teardown.
+        # Mirror Bonito's own WebSocketConnection teardown: only the loop
+        # owning the handler's current socket tears down (a stale loop whose
+        # browser already reconnected must not touch the live session), and
+        # with a soft-close window the session stays registered so a
+        # reconnect within the window resumes it; the registry sweeper reaps
+        # it via should_cleanup once the window passes.
         if Bonito.is_current_socket(connection.handler, ws)
-            remove!(registry, session.id)
-            close(session)
+            if Bonito.allow_soft_close(registry.cleanup_policy)
+                Bonito.soft_close(session)
+            else
+                remove!(registry, session.id)
+                close(session)
+            end
         end
     end
     return

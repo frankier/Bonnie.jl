@@ -30,7 +30,12 @@ browsers deduplicate them across several fragments on one page). See also
 function app_html(app::App; context::BonnieContext = current_context())
     session = bonnie_session(context; title = app.title)
     dom = Bonito.session_dom(session, app)
-    return sprint(io -> show(io, MIME"text/html"(), dom))
+    html = sprint(io -> show(io, MIME"text/html"(), dom))
+    # Sets status = DISPLAYED and stamps closing_time, which is what the
+    # cleanup policy's never-connected timeout keys off (Bonito's own
+    # display paths do this; our render path must too).
+    Bonito.mark_displayed!(session)
+    return html
 end
 
 app_html(f::Function; kw...) = app_html(App(f); kw...)

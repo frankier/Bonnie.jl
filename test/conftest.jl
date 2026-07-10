@@ -11,13 +11,17 @@ struct ExampleSpec
     id::String
     path::String              # relative to the package root
     routes::Vector{String}    # all must answer 200; "/" must mention the prefix
+    project::String           # env to run under (relative to root); "." = root
 end
+ExampleSpec(id, path, routes) = ExampleSpec(id, path, routes, ".")
 
 const EXAMPLE_SPECS = [
     ExampleSpec("basic", "examples/http/basic.jl", ["/", "/probe"]),
     ExampleSpec("embed_raw", "examples/http/embed_raw.jl", ["/"]),
     ExampleSpec("mount_app", "examples/http/mount_app.jl", ["/"]),
     ExampleSpec("interactive", "examples/http/interactive.jl", ["/", "/probe"]),
+    ExampleSpec("oxygen_basic", "examples/oxygen/basic.jl", ["/", "/probe"], "examples/oxygen"),
+    ExampleSpec("oxygen_templates", "examples/oxygen/templates.jl", ["/", "/plot"], "examples/oxygen"),
 ]
 
 pkg_root() = pkgdir(Bonnie)
@@ -58,10 +62,26 @@ function smoke_subprocess(spec::ExampleSpec)
     root = pkg_root()
     port = free_port()
     logfile = tempname()
-    cmd = addenv(
-        Cmd(`$(Base.julia_cmd()) --startup-file=no --project=$root $(joinpath(root, spec.path))`;
-            dir = root),
-        "PORT" => string(port))
+    project = spec.project == "." ? root : joinpath(root, spec.project)
+    # Pkg.test runs us inside a sandbox env whose JULIA_LOAD_PATH must not
+    # leak into example subprocesses; reset it to the default.
+    scrub(cmd) = addenv(cmd, "JULIA_LOAD_PATH" => "@:@v#.#:@stdlib", "PORT" => string(port))
+    if project != root
+        # Example envs ([sources]-based) need instantiating on first use;
+        # cheap once the depot is warm.
+        instantiate = scrub(Cmd(`$(Base.julia_cmd()) --startup-file=no --project=$project
+                                 -e 'import Pkg; Pkg.instantiate()'`; dir = root))
+        instproc = run(pipeline(ignorestatus(instantiate); stdout = logfile, stderr = logfile))
+        if !success(instproc)
+            @error "instantiating $(spec.project) failed; output follows"
+            print(stderr, read(logfile, String))
+            @test success(instproc)
+            return
+        end
+    end
+    cmd = scrub(
+        Cmd(`$(Base.julia_cmd()) --startup-file=no --project=$project $(joinpath(root, spec.path))`;
+            dir = root))
     proc = run(pipeline(cmd; stdout = logfile, stderr = logfile); wait = false)
     ok = false
     try

@@ -70,6 +70,18 @@ function default_app_page_template(; head::String = "", title::String = "", body
 end
 
 """
+    iframe_for(path; width = "100%", height = "400") -> String
+
+Iframe snippet pointing at a route that serves an [`app_page`](@ref)
+(mplbed's `iframe_for`). `Bonnie.Safe.iframe_for` returns it pre-trusted for
+HTML templating macros.
+"""
+function iframe_for(path::AbstractString; width = "100%", height = "400")
+    return "<iframe src=\"$(escape_html(path))\" width=\"$(escape_html(string(width)))\" " *
+           "height=\"$(escape_html(string(height)))\" frameborder=\"0\"></iframe>"
+end
+
+"""
     app_page_html(app::App; context = current_context(),
                   template = default_app_page_template, title = app.title) -> String
 

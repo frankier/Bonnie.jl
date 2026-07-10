@@ -14,5 +14,6 @@ import ..Bonnie
 app_html(args...; kw...) = HTML(Bonnie.app_html(args...; kw...))
 app_page_html(args...; kw...) = HTML(Bonnie.app_page_html(args...; kw...))
 head_content(; kw...) = HTML(Bonnie.head_content(; kw...))
+iframe_for(args...; kw...) = HTML(Bonnie.iframe_for(args...; kw...))
 
 end # module

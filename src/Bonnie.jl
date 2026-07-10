@@ -12,7 +12,7 @@ export EmbeddedConnection, EmbeddedAssetServer,
     bonnie_middleware, bonnie_router_factory,
     current_context, with_bonnie, get_native_app, url_path_for,
     app_page, app_html, app_page_html, head_content, default_app_page_template,
-    setup!
+    iframe_for, setup!
 
 include("consts.jl")
 include("registry.jl")
@@ -37,9 +37,7 @@ function setup! end
 function setup!(::Val{F}; kw...) where {F}
     if F === :oxygen
         error("Bonnie's Oxygen integration is provided by a package extension: " *
-              "run `using Oxygen` before calling `setup!(Val(:oxygen))`. " *
-              "(If Oxygen is already loaded, this Bonnie version does not ship " *
-              "the extension yet — see plan step 4.)")
+              "run `using Oxygen` before calling `setup!(Val(:oxygen))`.")
     end
     error("Bonnie has no integration for framework `$(F)`. Available: :oxygen " *
           "(requires `using Oxygen`).")

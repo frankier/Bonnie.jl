@@ -142,9 +142,39 @@ smoke of all four examples).
   ("subprocess" default | "inprocess").
 - Sockets (stdlib) added to test extras/target.
 
-## Steps 4–7 — NOT STARTED
+## Step 4: Oxygen extension — DONE (2026-07-11)
 
-Oxygen extension (dev Oxygen 1.10.2 with HTTP 2.x support is installed);
+Verified by `Pkg.test()` (137 assertions incl. extension tests + oxygen
+example smoke as subprocesses).
+
+- `ext/BonnieOxygenExt.jl`: `setup!(Val(:oxygen); app::Module = Oxygen, ...)`
+  registers `WS <prefix>/ws/{session_id}` + `GET <prefix>/assets/{key}`
+  (+ auth-gated `/status`) through Oxygen's function API and returns
+  `(; middleware, context, router, prefix, app)`. Passing an
+  `Oxygen.instance()` module as `app` covers instance mode — Oxygen's
+  route functions register on the calling module's `CONTEXT[]`, so the
+  module *is* the natural dispatch handle (no `Oxygen.Context` method
+  needed). Oxygen performs the ws upgrade itself for WEBSOCKET routes
+  (from `req.context[:stream]`), so no stream-level middleware on this
+  path.
+- Project.toml: Oxygen moved to `[weakdeps]`/`[extensions]`, added to test
+  extras; `[sources]` pins Oxygen to the `frankier/Oxygen.jl` fork branch
+  `http-2` (released Oxygen still caps HTTP at 1.x), which makes local
+  resolve and CI both use the HTTP 2.x port.
+- `iframe_for` landed in core `html.jl` (+ `Safe.iframe_for`) rather than
+  the extension — it is plain HTML with no Oxygen types to dispatch on.
+- `examples/oxygen/{basic,templates}.jl` with own Project.toml
+  (`[sources]`: Bonnie by path, Oxygen by fork URL); smoke harness gained
+  per-spec `project` envs, instantiates them on first use, and scrubs the
+  Pkg.test sandbox `JULIA_LOAD_PATH` from subprocess launches.
+- `test/test_oxygen.jl` (runs when the env provides Oxygen): extension
+  loads, routes work end-to-end incl. ws roundtrip, `get_native_app()`
+  returns the Oxygen module inside handlers.
+- Gotchas hit: `HTTP.WebSocket` is `HTTP.WebSockets.WebSocket` in 2.x;
+  `html` is exported by both Oxygen and Bonito (qualify in user code).
+
+## Steps 5–7 — NOT STARTED
+
 WGLMakie extension; registry soft-close/reconnect hardening; e2e/CI/docs.
 (Steps renumbered 2026-07-10 when plan.md gained the WGLMakie extension and
 registry-hardening steps after the Oxygen PR #212 comparison.)

@@ -67,6 +67,9 @@ end
 
         @test Bonnie.Safe.app_html(slider_app()) isa HTML
         @test head_content() == ""
+        @test iframe_for("/plot"; height = 120) ==
+              "<iframe src=\"/plot\" width=\"100%\" height=\"120\" frameborder=\"0\"></iframe>"
+        @test Bonnie.Safe.iframe_for("/plot") isa HTML
     end
     close(ctx.sessions)
 end

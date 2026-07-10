@@ -142,7 +142,9 @@ smoke of all four examples).
   ("subprocess" default | "inprocess").
 - Sockets (stdlib) added to test extras/target.
 
-## Steps 4–5 — NOT STARTED
+## Steps 4–7 — NOT STARTED
 
 Oxygen extension (dev Oxygen 1.10.2 with HTTP 2.x support is installed);
-e2e/CI/docs.
+WGLMakie extension; registry soft-close/reconnect hardening; e2e/CI/docs.
+(Steps renumbered 2026-07-10 when plan.md gained the WGLMakie extension and
+registry-hardening steps after the Oxygen PR #212 comparison.)

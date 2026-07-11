@@ -37,7 +37,7 @@ function bonnie_middleware(handler; prefix::String = DEFAULT_PREFIX,
 end
 
 function (m::BonnieMiddleware)(req::HTTP.Request)
-    with_bonnie(m.ctx) do
+    with_bonnie_request(m.ctx) do
         if m.manage_routing
             resp = dispatch(m.ctx.router, req)
             isnothing(resp) || return resp

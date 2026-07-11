@@ -67,40 +67,55 @@ end
 
         @test Bonnie.Safe.app_html(slider_app()) isa HTML
         @test head_content() == ""
+        @test iframe_for("/plot"; height = 120) ==
+              "<iframe src=\"/plot\" width=\"100%\" height=\"120\" frameborder=\"0\"></iframe>"
+        @test Bonnie.Safe.iframe_for("/plot") isa HTML
     end
     close(ctx.sessions)
 end
 
-@testset "registry TTL sweeper" begin
-    sessions = Bonnie.SessionRegistry(; ttl = 0.3, sweep_interval = 0.1)
+@testset "registry lifecycle (CleanupPolicy)" begin
+    # Never-connected session (rendered, browser never called back) is swept
+    # after session_ttl and closed...
+    sessions = Bonnie.SessionRegistry(; session_ttl = 0.3, sweep_interval = 0.1)
     ctx = BonnieContext(bonnie_router_factory(; sessions))
     app_html(slider_app(); context = ctx)
     @test length(sessions) == 1
     @test !isnothing(sessions.sweeper)
     session = Bonnie.lookup(sessions, only(keys(sessions.entries)))
-    # Never-connected session is swept after the TTL and closed...
+    @test session.status == Bonito.DISPLAYED     # mark_displayed! ran at render
     @test wait_for(() -> length(sessions) == 0; timeout = 5)
     @test session.status == Bonito.CLOSED
     # ...and the sweeper stops itself once the registry empties.
     @test wait_for(() -> isnothing(sessions.sweeper); timeout = 5)
-
-    # A connected session survives the TTL.
-    app_html(slider_app(); context = ctx)
-    id = only(keys(sessions.entries))
-    Bonnie.mark_connected!(sessions, id)
-    sleep(0.6)
-    @test length(sessions) == 1
     close(sessions)
-    @test length(sessions) == 0
+
+    # A soft-closed session (ws disconnected) stays registered within the
+    # reconnect window, then is reaped once it passes.
+    sessions = Bonnie.SessionRegistry(; session_ttl = 60, reconnect_window = 0.4,
+                                      sweep_interval = 0.1)
+    ctx = BonnieContext(bonnie_router_factory(; sessions))
+    app_html(slider_app(); context = ctx)
+    session = Bonnie.lookup(sessions, only(keys(sessions.entries)))
+    @test Bonito.allow_soft_close(sessions.cleanup_policy)
+    Bonito.soft_close(session)                   # what disconnect does
+    @test session.status == Bonito.SOFT_CLOSED
+    sleep(0.2)
+    @test length(sessions) == 1                  # still resumable
+    @test wait_for(() -> length(sessions) == 0; timeout = 5)
+    @test session.status == Bonito.CLOSED
+    close(sessions)
+
+    # reconnect_window = 0 disables soft close (disconnect closes at once).
+    @test !Bonito.allow_soft_close(Bonnie.SessionRegistry(; reconnect_window = 0).cleanup_policy)
 end
 
 @testset "registry concurrency" begin
-    sessions = Bonnie.SessionRegistry(; ttl = 60)
+    sessions = Bonnie.SessionRegistry(; session_ttl = 60)
     @sync for _ in 1:8
         Threads.@spawn for _ in 1:50
             s = Session(EmbeddedConnection(sessions))
             Bonnie.register!(sessions, s)
-            Bonnie.mark_connected!(sessions, s.id)
             @test Bonnie.lookup(sessions, s.id) === s
             Bonnie.remove!(sessions, s.id)
         end

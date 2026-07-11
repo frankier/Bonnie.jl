@@ -25,7 +25,8 @@ function handler(req::HTTP.Request)
     </head>
     <body>
     <h1>Two embedded apps</h1>
-    <p>Each fragment carries its own Bonito setup; module imports dedupe.</p>
+    <p>head_content carries the shared bootstrap; each app is a subsession
+    of one per-page root session sharing a single websocket.</p>
     $(app_html(slider_app()))
     <hr>
     $(app_html(slider_app()))

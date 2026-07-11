@@ -142,9 +142,113 @@ smoke of all four examples).
   ("subprocess" default | "inprocess").
 - Sockets (stdlib) added to test extras/target.
 
-## Steps 4–7 — NOT STARTED
+## Step 4: Oxygen extension — DONE (2026-07-11)
 
-Oxygen extension (dev Oxygen 1.10.2 with HTTP 2.x support is installed);
-WGLMakie extension; registry soft-close/reconnect hardening; e2e/CI/docs.
-(Steps renumbered 2026-07-10 when plan.md gained the WGLMakie extension and
-registry-hardening steps after the Oxygen PR #212 comparison.)
+Verified by `Pkg.test()` (137 assertions incl. extension tests + oxygen
+example smoke as subprocesses).
+
+- `ext/BonnieOxygenExt.jl`: `setup!(Val(:oxygen); app::Module = Oxygen, ...)`
+  registers `WS <prefix>/ws/{session_id}` + `GET <prefix>/assets/{key}`
+  (+ auth-gated `/status`) through Oxygen's function API and returns
+  `(; middleware, context, router, prefix, app)`. Passing an
+  `Oxygen.instance()` module as `app` covers instance mode — Oxygen's
+  route functions register on the calling module's `CONTEXT[]`, so the
+  module *is* the natural dispatch handle (no `Oxygen.Context` method
+  needed). Oxygen performs the ws upgrade itself for WEBSOCKET routes
+  (from `req.context[:stream]`), so no stream-level middleware on this
+  path.
+- Project.toml: Oxygen moved to `[weakdeps]`/`[extensions]`, added to test
+  extras; `[sources]` pins Oxygen to the `frankier/Oxygen.jl` fork branch
+  `http-2` (released Oxygen still caps HTTP at 1.x), which makes local
+  resolve and CI both use the HTTP 2.x port.
+- `iframe_for` landed in core `html.jl` (+ `Safe.iframe_for`) rather than
+  the extension — it is plain HTML with no Oxygen types to dispatch on.
+- `examples/oxygen/{basic,templates}.jl` with own Project.toml
+  (`[sources]`: Bonnie by path, Oxygen by fork URL); smoke harness gained
+  per-spec `project` envs, instantiates them on first use, and scrubs the
+  Pkg.test sandbox `JULIA_LOAD_PATH` from subprocess launches.
+- `test/test_oxygen.jl` (runs when the env provides Oxygen): extension
+  loads, routes work end-to-end incl. ws roundtrip, `get_native_app()`
+  returns the Oxygen module inside handlers.
+- Gotchas hit: `HTTP.WebSocket` is `HTTP.WebSockets.WebSocket` in 2.x;
+  `html` is exported by both Oxygen and Bonito (qualify in user code).
+
+## Step 5: WGLMakie extension — DONE (2026-07-11)
+
+Verified by the standalone canary (12 assertions, `julia
+--project=examples/wglmakie test/test_wglmakie.jl`), an in-process smoke of
+the streaming example, and the unchanged main suite (137).
+
+- `ext/BonnieMakieExt.jl` (weakdep WGLMakie 0.13): `figure_page` /
+  `figure_html` / `figure_page_html` on `Makie.FigureLike` =
+  `app_page(App(fig))` etc.; stubs + exports + `Safe` variants in core.
+  No connection/asset changes were needed — WGLMakie rides on Bonito as
+  predicted.
+- `test/test_wglmakie.jl`: canary asserting the WGLMakie ES module is
+  registered/served through the prefix (>10 kB body) and the init
+  handshake reaches ready (fails if the big binary scene bundle can't be
+  serialized/served). Self-bootstrapping: runs standalone under
+  `examples/wglmakie` env or from runtests when the env has WGLMakie.
+  Shared test helpers factored into `test/helpers.jl`.
+- `examples/wglmakie/streaming.jl` (own env, Bonnie via `[sources]` path):
+  port of Oxygen PR #212's demo — button-driven counter + 1 Hz server-push
+  into a lines plot — with the per-session ticker closed via
+  `session.on_close` (the PR's bare `@async` loop leaked). Smoke spec is
+  opt-in via `BONNIE_SMOKE_WGLMAKIE=1`.
+
+## Step 6: registry soft-close/reconnect — DONE (2026-07-11)
+
+Verified by `Pkg.test()` (147) + the WGLMakie canary (12).
+
+- `SessionRegistry` now delegates lifecycle to a `Bonito.CleanupPolicy`
+  (default `DefaultCleanupPolicy(session_ttl, reconnect_window/3600)`);
+  the sweeper reaps whatever `should_cleanup` approves: soft-closed
+  sessions past the reconnect window *and* rendered-but-never-connected
+  sessions past `session_ttl` — the bespoke `connected::Bool`/TTL entry
+  struct is gone.
+- On ws disconnect the session is **soft-closed** and stays registered
+  (default `reconnect_window = 30.0` s), so a reconnecting browser resumes
+  it — mirrors Bonito's own `WebSocketConnection` teardown including the
+  stale-loop `is_current_socket` guard; `reconnect_window = 0` restores
+  immediate close (tests use it where they assert instant teardown).
+- `app_html` now calls `Bonito.mark_displayed!` after rendering — that's
+  what stamps `closing_time`/`DISPLAYED`, which the policy's
+  never-connected timeout keys off (Bonito's display paths do this; our
+  render path had to as well).
+- New canary testset: connect → drop → session `SOFT_CLOSED` but still
+  registered → reconnect gets the same session and server push works down
+  the new socket.
+
+## Step 7: e2e, CI, docs — DONE (2026-07-11)
+
+Verified by `Pkg.test()` (160, incl. Aqua) + e2e (14 + WGLMakie 4 through
+headless Chrome) + a local Documenter build.
+
+- **Multi-app pages redesigned (plan trouble area 3, found by e2e):**
+  Bonito's client JS keeps ONE connection sender per page
+  (`Bonito.on_connection_open` is global), so two independent `app_html`
+  root sessions on a page left the first one deaf. Bonnie now installs a
+  `PageState` per request (ScopedValue): one root session owns the page's
+  websocket, `head_content()` emits its bootstrap (or the first fragment
+  does), and every `app_html` renders a Bonito **subsession** — finally
+  giving `head_content` real content, exactly mirroring mplbed. Standalone
+  (out-of-request) `app_html` keeps the old self-contained behaviour.
+- **E2E** (`test/test_e2e.jl` + `test/cdp.jl`, opt-in `BONNIE_E2E=1`):
+  minimal CDP client (JSON3 + HTTP.jl ws) driving headless Chrome — no new
+  runtime deps, solves the "browser testing needs Playwright/Electron"
+  problem that stalled Oxygen PR #212. Covers: basic slider roundtrip
+  (probe + server-updated label), embed_raw both-fragments-connect,
+  oxygen_templates fragment + iframe traversal, and (gated
+  `BONNIE_E2E_WGLMAKIE=1`) WGLMakie canvas + button. Slider driving works
+  by setting `input[type=range].value` and dispatching `input`.
+  `with_example` (subprocess launch/teardown) is shared with smoke.
+- **CI** (`.github/workflows/`): `tests.yml` — matrix (1.11, 1) unit+smoke,
+  a no-Oxygen job (strips Oxygen from the test target, proving the weakdep),
+  a WGLMakie canary job, and an e2e job (Chrome preinstalled on runners);
+  `docs.yml` — Documenter build + gh-pages deploy. Deviation: no separate
+  qa.yml — Aqua runs inside the main suite (`test/test_aqua.jl`);
+  JuliaFormatter/JET not adopted.
+- **Docs** (`docs/`): Documenter site (index/quickstarts, api, examples);
+  README.md added.
+
+All plan steps (1–7) complete.

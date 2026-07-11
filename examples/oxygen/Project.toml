@@ -1,0 +1,9 @@
+[deps]
+Bonito = "824d6782-a2ef-11e9-3a09-e5662e0c26f8"
+Bonnie = "6f62f684-a5f8-44b1-bc4e-a9317abb7de4"
+HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
+Oxygen = "df9a0d86-3283-4920-82dc-4555fc0d1d8b"
+
+[sources]
+Bonnie = {path = "../.."}
+Oxygen = {url = "https://github.com/frankier/Oxygen.jl", rev = "http-2"}

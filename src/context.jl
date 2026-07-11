@@ -10,6 +10,12 @@
 
 using Base.ScopedValues
 
+"""
+    MissingBonnieContext
+
+Thrown by context-dependent calls (`app_page`, `url_path_for`, ...) made
+outside a `bonnie_middleware`/[`with_bonnie`](@ref) scope.
+"""
 struct MissingBonnieContext <: Exception end
 
 function Base.showerror(io::IO, ::MissingBonnieContext)
@@ -39,6 +45,26 @@ BonnieContext(router::BonnieRouter) =
 
 const CURRENT_CONTEXT = ScopedValue{Union{BonnieContext, Nothing}}(nothing)
 const CURRENT_NATIVE_APP = ScopedValue{Any}(nothing)
+
+# Per-request page state. Bonito's client JS keeps one connection sender per
+# page (`Bonito.on_connection_open` is global), so several independent root
+# sessions on one page fight over it — the last one wins and the others go
+# deaf. The fix is Bonito's own multi-app model: ONE root session per
+# rendered page owning the websocket, with every app on the page a
+# subsession sharing it. The middleware installs a fresh PageState per
+# request; `head_content`/`app_html` lazily create and emit the root.
+mutable struct PageState
+    root::Union{Nothing, Session}
+    root_emitted::Bool
+end
+PageState() = PageState(nothing, false)
+
+const CURRENT_PAGE = ScopedValue{Union{Nothing, PageState}}(nothing)
+
+# Establish the per-request dynamic scope: context + fresh page state.
+# Shared by bonnie_middleware and the framework-integration middlewares.
+with_bonnie_request(f, ctx::BonnieContext) =
+    with(f, CURRENT_CONTEXT => ctx, CURRENT_PAGE => PageState())
 
 """
     current_context() -> BonnieContext

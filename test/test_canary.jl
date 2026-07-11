@@ -6,15 +6,6 @@
 # (setup_connection, process_message, asset key scheme, message protocol),
 # this is the test that should break first.
 
-# The browser side of Bonito's protocol: plain msgpack, gzipped only if the
-# session negotiated compression. (Bonito.serialize_binary is the *server*
-# encoder and wraps payloads in msgpack extensions process_message rejects.)
-function client_message(session, msg::AbstractDict)
-    bytes = Bonito.MsgPack.pack(msg)
-    session.compression_enabled && (bytes = Bonito.transcode(Bonito.GzipCompressor, bytes))
-    return bytes
-end
-
 @testset "canary: slider app end-to-end" begin
     last_value = Bonito.Observable(0)
     slider_value = Ref{Any}(nothing)
@@ -30,7 +21,9 @@ end
     end
 
     port = 8199
-    mw = bonnie_middleware(index)
+    # reconnect_window = 0: this testset asserts immediate close-on-disconnect
+    # (the soft-close/reconnect path has its own testset below).
+    mw = bonnie_middleware(index; reconnect_window = 0)
     server = HTTP.listen!(mw, "127.0.0.1", port)
     base = "http://127.0.0.1:$port"
 
@@ -99,6 +92,43 @@ end
             true
         end
         @test closed_early
+    finally
+        close(server)
+        close(mw)
+    end
+end
+
+@testset "canary: soft-close reconnect window" begin
+    index(req) = Bonnie.target_path(req.target) == "/" ? app_page(slider_app()) :
+                 HTTP.Response(404)
+    port = free_port()
+    mw = bonnie_middleware(index; reconnect_window = 30)
+    server = HTTP.listen!(mw, "127.0.0.1", port)
+    try
+        HTTP.get("http://127.0.0.1:$port/")
+        session = Bonnie.lookup(mw.ctx.sessions, only(keys(mw.ctx.sessions.entries)))
+        ws_url = "ws://127.0.0.1:$port/bonito/ws/$(session.id)"
+
+        # First connection, then drop it: the session is soft-closed but
+        # stays registered for the reconnect window.
+        WebSockets.open(ws_url) do ws
+            WebSockets.send(ws, client_message(session, Dict{String, Any}(
+                "msg_type" => Bonito.JSDoneLoading,
+                "exception" => "nothing",
+                "session" => session.id,
+            )))
+            wait_for(() -> Bonito.isready(session; throw = false))
+        end
+        @test wait_for(() -> session.status == Bonito.SOFT_CLOSED)
+        @test length(mw.ctx.sessions) == 1
+
+        # Reconnect within the window: the same session gets the new socket.
+        WebSockets.open(ws_url) do ws
+            @test wait_for(() -> isopen(session))
+            # Server push down the *new* socket works.
+            @test (Bonito.evaljs(session, Bonito.js"console.log('reconnected')"); true)
+        end
+        @test wait_for(() -> session.status == Bonito.SOFT_CLOSED)
     finally
         close(server)
         close(mw)

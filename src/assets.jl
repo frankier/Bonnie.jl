@@ -1,8 +1,11 @@
-# EmbeddedAssetServer: like Bonito.HTTPAssetServer, but generates URLs under
-# <prefix>/assets/<key> and registers the assets in Bonnie's registry, served
-# by the host server. Content-addressed keys (Bonito.unique_file_key) make the
-# URLs safely cacheable.
+"""
+    EmbeddedAssetServer <: Bonito.AbstractAssetServer
 
+Like `Bonito.HTTPAssetServer`, but generates URLs under
+`<prefix>/assets/<key>` and registers the assets in Bonnie's registry, served
+by the host server. Content-addressed keys (`Bonito.unique_file_key`) make
+the URLs safely cacheable.
+"""
 struct EmbeddedAssetServer <: AbstractAssetServer
     registry::AssetRegistry
     prefix::String

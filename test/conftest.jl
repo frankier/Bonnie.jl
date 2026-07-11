@@ -5,29 +5,31 @@
 # an anonymous module and calls its main(; port) for a fast dev loop —
 # select with ENV["BONNIE_SMOKE_MODE"] = "subprocess" (default) | "inprocess".
 
-using Sockets
-
 struct ExampleSpec
     id::String
     path::String              # relative to the package root
     routes::Vector{String}    # all must answer 200; "/" must mention the prefix
+    project::String           # env to run under (relative to root); "." = root
 end
+ExampleSpec(id, path, routes) = ExampleSpec(id, path, routes, ".")
 
 const EXAMPLE_SPECS = [
     ExampleSpec("basic", "examples/http/basic.jl", ["/", "/probe"]),
     ExampleSpec("embed_raw", "examples/http/embed_raw.jl", ["/"]),
     ExampleSpec("mount_app", "examples/http/mount_app.jl", ["/"]),
     ExampleSpec("interactive", "examples/http/interactive.jl", ["/", "/probe"]),
+    ExampleSpec("oxygen_basic", "examples/oxygen/basic.jl", ["/", "/probe"], "examples/oxygen"),
+    ExampleSpec("oxygen_templates", "examples/oxygen/templates.jl", ["/", "/plot"], "examples/oxygen"),
+    # WGLMakie is heavy (long install + startup): smoke runs it only with
+    # BONNIE_SMOKE_WGLMAKIE=1, e2e with BONNIE_E2E_WGLMAKIE=1 (CI jobs do).
+    ExampleSpec("wglmakie_streaming", "examples/wglmakie/streaming.jl",
+                ["/", "/probe"], "examples/wglmakie"),
 ]
 
-pkg_root() = pkgdir(Bonnie)
+smoke_enabled(spec::ExampleSpec) =
+    spec.id != "wglmakie_streaming" || get(ENV, "BONNIE_SMOKE_WGLMAKIE", "") == "1"
 
-function free_port()
-    server = Sockets.listen(Sockets.InetAddr(Sockets.ip"127.0.0.1", 0))
-    _, port = Sockets.getsockname(server)
-    close(server)
-    return Int(port)
-end
+pkg_root() = pkgdir(Bonnie)
 
 function wait_port(port; timeout = 180.0, alive = () -> true)
     deadline = time() + timeout
@@ -54,21 +56,40 @@ function check_routes(base::String, spec::ExampleSpec)
     end
 end
 
-function smoke_subprocess(spec::ExampleSpec)
+# Launch `spec` as a subprocess, wait for its port and run `f(base_url)`
+# against it; SIGTERM + reap on the way out, dumping child output if `f`
+# threw or the server never came up. Shared by the smoke and e2e suites.
+function with_example(f, spec::ExampleSpec)
     root = pkg_root()
     port = free_port()
     logfile = tempname()
-    cmd = addenv(
-        Cmd(`$(Base.julia_cmd()) --startup-file=no --project=$root $(joinpath(root, spec.path))`;
-            dir = root),
-        "PORT" => string(port))
+    project = spec.project == "." ? root : joinpath(root, spec.project)
+    # Pkg.test runs us inside a sandbox env whose JULIA_LOAD_PATH must not
+    # leak into example subprocesses; reset it to the default.
+    scrub(cmd) = addenv(cmd, "JULIA_LOAD_PATH" => "@:@v#.#:@stdlib", "PORT" => string(port))
+    if project != root
+        # Example envs ([sources]-based) need instantiating on first use;
+        # cheap once the depot is warm.
+        instantiate = scrub(Cmd(`$(Base.julia_cmd()) --startup-file=no --project=$project
+                                 -e 'import Pkg; Pkg.instantiate()'`; dir = root))
+        instproc = run(pipeline(ignorestatus(instantiate); stdout = logfile, stderr = logfile))
+        if !success(instproc)
+            @error "instantiating $(spec.project) failed; output follows"
+            print(stderr, read(logfile, String))
+            @test success(instproc)
+            return
+        end
+    end
+    cmd = scrub(
+        Cmd(`$(Base.julia_cmd()) --startup-file=no --project=$project $(joinpath(root, spec.path))`;
+            dir = root))
     proc = run(pipeline(cmd; stdout = logfile, stderr = logfile); wait = false)
     ok = false
     try
         up = wait_port(port; alive = () -> process_running(proc))
         @test up
         if up
-            check_routes("http://127.0.0.1:$port", spec)
+            f("http://127.0.0.1:$port")
             @test process_running(proc)
             ok = true
         end
@@ -87,6 +108,8 @@ function smoke_subprocess(spec::ExampleSpec)
         end
     end
 end
+
+smoke_subprocess(spec::ExampleSpec) = with_example(base -> check_routes(base, spec), spec)
 
 function smoke_inprocess(spec::ExampleSpec)
     port = free_port()

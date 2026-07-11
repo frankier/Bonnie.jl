@@ -1,0 +1,82 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Unit + canary + Oxygen extension + example smoke (subprocesses).
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        julia-version: ['1.11', '1']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: ${{ matrix.julia-version }}
+      - uses: julia-actions/cache@v2
+      - uses: julia-actions/julia-buildpkg@v1
+      - uses: julia-actions/julia-runtest@v1
+
+  # The core package must work without Oxygen installed (it is a weakdep):
+  # strip it from the test target and run the suite (test_oxygen.jl skips
+  # itself when Oxygen is absent).
+  test-no-oxygen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v2
+      - name: Strip Oxygen from the test environment
+        run: |
+          julia -e '
+            using TOML
+            d = TOML.parsefile("Project.toml")
+            delete!(d["extras"], "Oxygen")
+            d["targets"]["test"] = filter(!=("Oxygen"), d["targets"]["test"])
+            haskey(d, "sources") && delete!(d["sources"], "Oxygen")
+            open(io -> TOML.print(io, d), "Project.toml", "w")'
+      - uses: julia-actions/julia-buildpkg@v1
+      - uses: julia-actions/julia-runtest@v1
+
+  # WGLMakie canary + example smoke, in the dedicated heavy environment.
+  test-wglmakie:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v2
+      - name: Instantiate WGLMakie environment
+        run: julia --project=examples/wglmakie -e 'import Pkg; Pkg.instantiate()'
+      - name: Run WGLMakie canary
+        run: julia --project=examples/wglmakie test/test_wglmakie.jl
+
+  # Browser end-to-end: drive the examples in headless Chrome (preinstalled
+  # on ubuntu runners), including the WGLMakie canvas.
+  test-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v2
+      - name: Instantiate WGLMakie environment
+        run: julia --project=examples/wglmakie -e 'import Pkg; Pkg.instantiate()'
+      - uses: julia-actions/julia-buildpkg@v1
+      - uses: julia-actions/julia-runtest@v1
+        env:
+          BONNIE_E2E: '1'
+          BONNIE_E2E_WGLMAKIE: '1'

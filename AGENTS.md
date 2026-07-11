@@ -14,7 +14,7 @@ Be succinct!
 Work in a git worktree per task, never directly on `main`:
 
 ```sh
-git worktree add ../ComputerAdaptiveTesting.jl-<task> -b <task>
+git worktree add ../Bonnie.jl-<task> -b <task>
 ```
 
 Commit there, but never add 'Co-Authored By: Claude' or similar to the commit, push with `git push -u origin <task>`, and open a pull request with `gh pr create`. Clean up with `git worktree remove` after merge.
